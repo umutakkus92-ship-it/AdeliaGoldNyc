@@ -398,6 +398,15 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--ivory)}
 .inv-t{min-width:0;width:100%}.inv-t th{color:#77736D;border-color:#E9E3D7}.inv-t td{border-color:#E9E3D7}.inv-t th:not(:first-child),.inv-t td:not(:first-child){text-align:right}
 @media print{body *{visibility:hidden!important}#inv,#inv *{visibility:visible!important}#inv{position:absolute;inset:0;background:#fff;padding:0}.inv-bar{display:none!important}}
 @media (max-width:980px){.adm{grid-template-columns:1fr}.adm-side{position:fixed;left:0;top:0;width:264px;z-index:90;transform:translateX(-100%);transition:transform .3s;box-shadow:20px 0 40px rgba(0,0,0,.3)}.adm-side.on{transform:none}.adm-menu{display:grid}.adm-top{padding:14px 18px;gap:10px}.adm-top h1{font-size:26px}.adm-top-r .note{display:none}.adm-body{padding:18px 14px 60px}.acols{grid-template-columns:1fr}.acard{padding:20px}.inv-paper{padding:28px}}
+.hero-img{position:relative;background:#121110;padding:0!important}
+.hero-link{display:block;cursor:pointer}
+.hero-img img{display:block;width:100%;height:auto;aspect-ratio:2/1;object-fit:cover}
+.hero-mob{display:none;text-align:center;padding:34px 22px 44px;color:#F3EDE2}
+.hero-mob .btn{background:#C6A56B;border-color:#C6A56B;color:#171717}
+.hero-mob .kicker{font-family:var(--serif);font-style:italic;font-size:18px;color:#E8D3A2}
+.hero-mob h1{font-size:44px;line-height:1;font-weight:400;margin:12px 0 14px}
+.hero-mob p{color:#A79F92;margin:0 0 24px}
+@media (max-width:760px){.hero-img img{aspect-ratio:1/1;object-position:100% 50%}.hero-mob{display:block}}
 @media (max-width:1060px){
   nav.main,.txtlink{display:none}.menu-btn{display:grid}
   .top{height:70px}.logo b{font-size:28px}
@@ -744,17 +753,15 @@ function homeView(){
   const tiles=["w-neck","m-cuban","w-ring","w-ear","w-brace","w-pend","w-dia","e-eng"].map(id=>CATS.find(c=>c.id===id)).filter(Boolean);
   const kcol={"10K":"radial-gradient(circle at 35% 30%,#F4E7C2,#C9B27A 45%,#7F6A3A)","14K":"radial-gradient(circle at 35% 30%,#FBEBB8,#D8B262 45%,#86622A)","18K":"radial-gradient(circle at 35% 30%,#FFEDB0,#E2B64D 45%,#8E6219)","22K":"radial-gradient(circle at 35% 30%,#FFE9A0,#E9AD2E 45%,#935C0B)","24K":"radial-gradient(circle at 35% 30%,#FFE48A,#F2A516 45%,#9A5506)"};
   return `
-  <section class="hero" style="padding:0"><div class="hero-in">
-    <div class="hero-copy">
+  <section class="hero-img">
+    <a class="hero-link" data-nav="all" aria-label="Explore the collection"><img src="images/hero.jpg?v=2" width="2400" height="1200" fetchpriority="high" alt="Model wearing Adelia gold jewelry with the New York skyline at night"></a>
+    <div class="hero-mob">
       <div class="kicker">${esc(S.hero.kicker)}</div>
-      <h1>${esc(S.hero.title)}</h1>
-      <p>${esc(S.hero.sub)}</p>
-      <div class="ctas"><a class="btn gold" data-nav="women">Shop women’s collection</a><a class="btn ghost-light" data-nav="men">Explore men’s collection</a></div>
+      <h1>More Than Gold. A Legacy.</h1>
+      <p>Discover timeless jewelry, designed to be treasured for generations.</p>
+      <div class="ctas"><a class="btn" data-nav="all">Explore the collection</a></div>
     </div>
-    <div class="hero-art"><svg viewBox="0 0 520 520" aria-hidden="true"><g class="chainin" filter="url(#sh)">${chainOn("cuban",tt=>[20+480*tt,40+330*Math.sin(Math.PI*tt)],30,"Y",14.5)}</g>
-      <g transform="translate(250 300) scale(.55)" filter="url(#sh)">${band("Y",200,262,112,60,20)}<path d="M182 206 L174 164 M218 206 L226 164" stroke="url(#gY)" stroke-width="6" stroke-linecap="round"/>${stone(200,160,40)}</g>
-      ${sparkle(392,358,16,"twinkle")}${sparkle(150,250,9,"twinkle")}</svg></div>
-  </div><div class="hero-meta"><span>More Than Gold. A Legacy.</span><span>Rendered imagery — campaign photography to follow</span></div></section>
+  </section>
 
   <section><div class="wrap">
     <div class="head"><div><h2>Shop by category</h2><p>From everyday chains to diamond pieces.</p></div><a class="more" data-nav="collections">All jewelry</a></div>
