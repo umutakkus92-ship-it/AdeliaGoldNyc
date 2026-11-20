@@ -1,0 +1,654 @@
+// Adelia Gold & Jewellery — database schema (all phases).
+// Money is stored as integer US cents. Metal rates use Decimal.
+// Card numbers and CVV are NEVER stored: only provider tokens/references.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────────────── Enums ─────────────────────────
+
+enum Role {
+  CUSTOMER
+  SUPPORT
+  ORDER_MANAGER
+  PRODUCT_MANAGER
+  FINANCE
+  SUPER_ADMIN
+}
+
+enum ProductKind {
+  JEWELRY
+  WATCH
+  BULLION // investment gold & silver — checkout stays disabled until approved
+}
+
+enum ProductCondition {
+  NEW
+  PRE_OWNED
+}
+
+enum ConditionGrade {
+  UNWORN
+  EXCELLENT
+  VERY_GOOD
+  GOOD
+  FAIR
+}
+
+enum InspectionStatus {
+  NOT_REQUIRED
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum Purity {
+  K10
+  K14
+  K18
+  K22
+  K24
+}
+
+enum MetalType {
+  GOLD
+  SILVER
+  PLATINUM
+  STEEL
+  MIXED
+}
+
+enum MetalColor {
+  YELLOW
+  WHITE
+  ROSE
+  TWO_TONE
+  NONE
+}
+
+enum PricingMode {
+  AUTO // computed from the active gold rate
+  MANUAL // fixed selling price
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum CategoryGroup {
+  WOMEN
+  MEN
+  ENGAGEMENT
+  PRE_OWNED
+  WATCHES
+  COLLECTIONS
+  INVESTMENT
+}
+
+enum CategoryRule {
+  MANUAL // products assigned explicitly
+  NEW_ARRIVALS
+  BEST_SELLERS
+  PURITY // uses Category.rulePurity
+  PRE_OWNED
+  NEW_CONDITION
+}
+
+enum MediaKind {
+  GALLERY
+  CONDITION // detailed condition photographs (pre-owned)
+  DOCUMENT // authentication / appraisal documents
+}
+
+enum RateSource {
+  MANUAL
+  API
+  SAMPLE // development seed only — storefront labels prices as samples, checkout refuses it
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  UNPAID
+  AUTHORIZED
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
+  VOIDED
+}
+
+enum FulfillmentStatus {
+  UNFULFILLED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  RETURNED
+}
+
+enum ShipmentStatus {
+  LABEL_CREATED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  EXCEPTION
+  RETURNED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  PROCESSED
+  REJECTED
+  FAILED
+}
+
+enum PaymentMode {
+  TEST
+  LIVE
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+  FREE_SHIPPING
+}
+
+enum PolicyStatus {
+  DRAFT
+  ATTORNEY_REVIEW
+  PUBLISHED
+}
+
+// ───────────────────────── People ─────────────────────────
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String?
+  firstName        String
+  lastName         String
+  phone            String?
+  role             Role      @default(CUSTOMER)
+  emailVerifiedAt  DateTime?
+  marketingOptIn   Boolean   @default(false)
+  marketingOptInAt DateTime?
+  twoFactorSecret  String? // encrypted at rest; required for staff roles (phase 3)
+  disabledAt       DateTime?
+  failedLogins     Int       @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  sessions    Session[]
+  resetTokens PasswordResetToken[]
+  addresses   Address[]
+  orders      Order[]
+  wishlist    WishlistItem[]
+  carts       Cart[]
+  auditLogs   AuditLog[]
+  goldRates   GoldRate[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique // SHA-256 of the cookie token; raw token is never stored
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isStaff   Boolean  @default(false)
+  ip        String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String?
+  fullName   String
+  line1      String
+  line2      String?
+  city       String
+  state      String   @db.Char(2)
+  zip        String
+  country    String   @default("US") @db.Char(2)
+  phone      String?
+  isDefault  Boolean  @default(false)
+  validated  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ───────────────────────── Catalogue ─────────────────────────
+
+model Category {
+  id          String        @id @default(cuid())
+  slug        String
+  name        String
+  group       CategoryGroup
+  rule        CategoryRule  @default(MANUAL)
+  rulePurity  Purity?
+  description String?
+  imageUrl    String?
+  art         String? // placeholder render key until real photography is uploaded
+  sortOrder   Int           @default(0)
+  enabled     Boolean       @default(true)
+  metaTitle   String?
+  metaDesc    String?
+
+  products ProductCategory[]
+
+  @@unique([group, slug])
+}
+
+model Product {
+  id          String           @id @default(cuid())
+  slug        String           @unique
+  sku         String           @unique
+  name        String
+  brand       String?
+  description String?
+  kind        ProductKind      @default(JEWELRY)
+  condition   ProductCondition @default(NEW)
+  status      ProductStatus    @default(DRAFT)
+
+  // Metal
+  metalType  MetalType  @default(GOLD)
+  metalColor MetalColor @default(YELLOW)
+  purity     Purity?
+  weightGrams Decimal?  @db.Decimal(10, 3)
+
+  // Stones
+  stoneInfo      String?
+  stoneCostCents Int     @default(0)
+
+  // Pricing (purchase price is admin-only and never sent to the storefront)
+  purchasePriceCents Int?
+  labourCents        Int         @default(0)
+  pricingMode        PricingMode @default(AUTO)
+  manualPriceCents   Int?
+  marginPctOverride  Decimal?    @db.Decimal(6, 2)
+  compareAtCents     Int?
+
+  // Inventory
+  quantity       Int     @default(0)
+  allowBackorder Boolean @default(false)
+
+  // Options
+  ringSizes     String[]
+  chainLengths  String[] // inches
+
+  // Pre-owned disclosure
+  conditionGrade     ConditionGrade?
+  conditionNotes     String?
+  inspectionStatus   InspectionStatus @default(NOT_REQUIRED)
+  inspectedAt        DateTime?
+  hallmark           String?
+  authenticationInfo String?
+
+  // Watches
+  modelReference String?
+  year           String?
+  caseSize       String?
+  caseMaterial   String?
+  boxAndPapers   String?
+
+  // Bullion
+  fineWeightGrams Decimal? @db.Decimal(12, 4)
+  fineness        String?
+  mint            String?
+  premiumPct      Decimal? @db.Decimal(6, 2)
+
+  // Shipping
+  shippingNote      String?
+  signatureRequired Boolean @default(true)
+
+  // Merchandising
+  isNewArrival Boolean @default(false)
+  isBestSeller Boolean @default(false)
+  sortOrder    Int     @default(0)
+  art          String? // placeholder render key until photos exist
+  metaTitle    String?
+  metaDesc     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  media       ProductMedia[]
+  categories  ProductCategory[]
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+  wishlisted  WishlistItem[]
+  movements   InventoryMovement[]
+
+  @@index([status, kind])
+  @@index([condition])
+}
+
+model ProductCategory {
+  productId  String
+  categoryId String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+  @@index([categoryId])
+}
+
+model ProductMedia {
+  id        String    @id @default(cuid())
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  kind      MediaKind @default(GALLERY)
+  url       String
+  publicId  String? // Cloudinary public id
+  alt       String?
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  @@index([productId, kind])
+}
+
+model InventoryMovement {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  delta     Int
+  reason    String // RECEIVED | SOLD | RETURNED | ADJUSTMENT | ORDER_CANCELLED
+  orderId   String?
+  note      String?
+  byUserId  String?
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+// ───────────────────────── Pricing ─────────────────────────
+
+model GoldRate {
+  id                 String     @id @default(cuid())
+  goldPerGram24kUsd  Decimal    @db.Decimal(12, 4)
+  silverPerGramUsd   Decimal?   @db.Decimal(12, 4)
+  source             RateSource
+  sourceDetail       String?
+  verified           Boolean    @default(false)
+  effectiveAt        DateTime   @default(now())
+  createdById        String?
+  createdBy          User?      @relation(fields: [createdById], references: [id])
+  createdAt          DateTime   @default(now())
+
+  @@index([effectiveAt])
+}
+
+model PurityRule {
+  purity              Purity   @id
+  factor              Decimal  @db.Decimal(6, 4) // e.g. 14K = 0.5850
+  labourPerGramCents  Int      @default(0)
+  marginPct           Decimal? @db.Decimal(6, 2) // null → use store default margin
+  updatedAt           DateTime @updatedAt
+}
+
+// ───────────────────────── Cart & wishlist ─────────────────────────
+
+model Cart {
+  id        String     @id @default(cuid())
+  tokenHash String?    @unique // guest cart cookie
+  userId    String?
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  discountCode String?
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([userId])
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  option    String  @default("")
+  quantity  Int
+
+  @@unique([cartId, productId, option])
+}
+
+model WishlistItem {
+  userId    String
+  productId String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, productId])
+}
+
+// ───────────────────────── Orders ─────────────────────────
+
+model Order {
+  id                String            @id @default(cuid())
+  number            String            @unique // AG-100123
+  userId            String?
+  user              User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email             String
+  phone             String?
+  customerName      String
+  shippingAddress   Json // snapshot
+  billingAddress    Json // snapshot
+  currency          String            @default("USD") @db.Char(3)
+  subtotalCents     Int
+  discountCents     Int               @default(0)
+  shippingCents     Int               @default(0)
+  taxCents          Int               @default(0)
+  totalCents        Int
+  costCents         Int               @default(0) // sum of purchase prices — finance only
+  discountCode      String?
+  goldRateId        String? // rate used to price this order
+  taxRatePct        Decimal?          @db.Decimal(6, 4)
+  shippingMethod    String?
+  status            OrderStatus       @default(PENDING)
+  paymentStatus     PaymentStatus     @default(UNPAID)
+  fulfillmentStatus FulfillmentStatus @default(UNFULFILLED)
+  customerNote      String?
+  internalNote      String?
+  ip                String?
+  riskScore         Int?
+  placedAt          DateTime          @default(now())
+  cancelledAt       DateTime?
+  updatedAt         DateTime          @updatedAt
+
+  items     OrderItem[]
+  payments  Payment[]
+  refunds   Refund[]
+  shipments Shipment[]
+
+  @@index([email])
+  @@index([status, paymentStatus])
+  @@index([placedAt])
+}
+
+model OrderItem {
+  id             String     @id @default(cuid())
+  orderId        String
+  order          Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  // snapshot at purchase time
+  name           String
+  sku            String
+  condition      ProductCondition
+  purity         Purity?
+  weightGrams    Decimal?   @db.Decimal(10, 3)
+  option         String     @default("")
+  quantity       Int
+  unitPriceCents Int
+  unitCostCents  Int        @default(0)
+  lineTotalCents Int
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  orderId        String
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider       String // sandbox | authorizenet | stripe | paypal
+  mode           PaymentMode
+  providerRef    String? // transaction id at the provider
+  status         PaymentStatus
+  amountCents    Int
+  feeCents       Int?
+  cardBrand      String? // display only, from provider
+  cardLast4      String? @db.Char(4)
+  failureCode    String?
+  failureMessage String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([provider, providerRef])
+  @@index([orderId])
+}
+
+model PaymentEvent {
+  id              String   @id @default(cuid())
+  provider        String
+  providerEventId String
+  type            String
+  signatureValid  Boolean
+  payload         Json
+  processedAt     DateTime?
+  error           String?
+  receivedAt      DateTime @default(now())
+
+  @@unique([provider, providerEventId]) // idempotency
+}
+
+model Refund {
+  id          String       @id @default(cuid())
+  orderId     String
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amountCents Int
+  reason      String?
+  status      RefundStatus @default(REQUESTED)
+  providerRef String?
+  requestedBy String? // user id
+  processedBy String? // staff user id
+  createdAt   DateTime     @default(now())
+  processedAt DateTime?
+}
+
+model Shipment {
+  id                String         @id @default(cuid())
+  orderId           String
+  order             Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  carrier           String
+  service           String?
+  trackingNumber    String?
+  status            ShipmentStatus @default(LABEL_CREATED)
+  insuredValueCents Int?
+  insuranceProvider String?
+  signatureRequired Boolean        @default(true)
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  events            Json? // carrier scan history
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([trackingNumber])
+}
+
+// ───────────────────────── Marketing ─────────────────────────
+
+model Discount {
+  id             String       @id @default(cuid())
+  code           String       @unique
+  type           DiscountType
+  value          Int // percent (0-100) or cents
+  minSubtotalCents Int        @default(0)
+  maxUses        Int?
+  usedCount      Int          @default(0)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+}
+
+model NewsletterSubscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  source         String    @default("footer")
+  consentAt      DateTime  @default(now())
+  unsubscribedAt DateTime?
+}
+
+// ───────────────────────── Tax, content, settings ─────────────────────────
+
+model TaxRate {
+  state       String   @id @db.Char(2)
+  ratePct     Decimal  @db.Decimal(6, 4)
+  taxShipping Boolean  @default(false)
+  hasNexus    Boolean  @default(false) // collect only where the business is registered
+  note        String?
+  updatedAt   DateTime @updatedAt
+}
+
+model Policy {
+  slug        String       @id // privacy, terms, shipping, returns, care, faq
+  title       String
+  body        String // Markdown
+  status      PolicyStatus @default(DRAFT)
+  version     Int          @default(1)
+  reviewedBy  String? // attorney name once reviewed
+  reviewedAt  DateTime?
+  updatedAt   DateTime     @updatedAt
+}
+
+model StoreSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String?
+  entityId  String?
+  detail    Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
